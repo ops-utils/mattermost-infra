@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Resources for a single-node Mattermost deployment. Single-node deployments are
+  claimed by Mattermost to be able to support up to 2,000 users. Note that this
+  stack intends the instance configuration to be relegated to the administrator
+  via e.g. SSM connectivity, and not over SSH or via User Data.
+
+
+Parameters:
+  VPCStackName:
+    Description: |
+      Name of the VPC stack from which to import VPC resources. Defaults to
+      'mattermost-vpc'.
+    Default: mattermost-vpc
+    Type: String
+  HttpsCidr:
+    Description: |
+      CIDR range for Mattermost LB access. Defaults to fully-open, but you can
+      pass in a valid CIDR block here to restrict it.
+    Default: '71.91.222.114/32'
+    Type: String
+
+
+# Ubuntu 18.04 map
+# Look up AMI IDs here: https://cloud-images.ubuntu.com/locator/ec2/
+Mappings:
+  RegionMap:
+    us-east-1:
+      'HVM64': 'xyz'
+    us-east-2:
+      'HVM64': 'ami-07c1207a9d40bc3bd'
+    ca-central-1:
+      'HVM64': 'ami-0edd51cc29813e254'
+    eu-north-1:
+      'HVM64': 'ami-050981837962d44ac'
+
+
+Resources:
+
+
+  #############
+  # S3 Bucket #
+  #############
+  Bucket:
+    Type: AWS::S3::Bucket
+    # DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub 'mattermost-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            Id: Delete stale, versioned backup data
+            NoncurrentVersionExpirationInDays: 7
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+
+  ###################
+  # Security Groups #
+  ###################
+  SecurityGroupHttps:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTPS access to Instance
+      VpcId:
+        Fn::ImportValue:
+          !Sub '${VPCStackName}-VPCID'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref HttpsCidr
+
+
+  #######
+  # IAM #
+  #######
+  MMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - 'ec2.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+      Policies:
+        - PolicyName: 'MMServerPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: S3
+                Effect: 'Allow'
+                Action:
+                  - 's3:Head*'
+                  - 's3:List*'
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                Resource: !Sub '${Bucket.Arn}/*'
+              - Sid: Logging
+                Effect: 'Allow'
+                Action:
+                  - 'logs:*'
+                Resource: !Sub '${LogGroup.Arn}/*'
+  
+  MMInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: '/'
+      Roles:
+        - !Ref MMRole
+
+
+  ###########
+  # Logging #
+  ###########
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    # DeletionPolicy: Retain
+    Properties: 
+      LogGroupName: '/aws/ec2/mattermost'
+      RetentionInDays: 180
+
+
+  ###################
+  # EC2 instance(s) #
+  ###################
+  MMServer:
+    Type: AWS::EC2::Instance
+    Properties: 
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', 'HVM64']
+      InstanceType: t3a.micro
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+      IamInstanceProfile: !Ref MMInstanceProfile
+      SecurityGroupIds:
+        - !Ref SecurityGroupHttps
+      SubnetId:
+        Fn::ImportValue:
+          !Sub '${VPCStackName}-PublicSubnet1ID'
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/usr/bin/env bash
+            set -xe
+            apt-get update && apt-get dist-upgrade -y
+            apt-get install -y curl python3 python3-pip
+            pip3 install ansible
+            until aws s3 cp --recursive s3://${Bucket}/source /root/source; do
+              echo "No data fund in 's3://${Bucket}/source' yet; waiting" >> /root/hostlog.log
+              sleep 5
+            done
+            bash /root/source/scripts/deploy.sh >> /root/hostlog.log 2>&1
+      Tags:
+        - Key:   'Name'
+          Value: 'mattermost'
+
+
+  #######################
+  # EIP and Association #
+  #######################
+  Eip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref MMServer
+      Tags:
+        - Key:   'Name'
+          Value: 'mattermost-eip'
+
+
+###########
+# Outputs #
+###########
+Outputs:
+  MMServerInstanceId:
+    Description: Instance ID of the Mattermost Server
+    Value: !Ref MMServer
+    Export:
+      Name: !Sub '${AWS::StackName}-MMServerInstanceId' 
+  Eip:
+    Description: Elastic IP Address for Mattermost server
+    Value: !Ref Eip
+    Export:
+      Name: !Sub '${AWS::StackName}-EipAddress'
+  SecurityGroupHttps:
+    Description: SG ID allowing HTTPS access to the Mattermost server
+    Value: !Ref SecurityGroupHttps
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupHttps'

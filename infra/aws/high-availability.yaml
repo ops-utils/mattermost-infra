@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Resources for a high-availability Mattermost deployment. For more than 2,000
+  users, Mattermost recommends deploying something like this. *THIS IS NOT A
+  COMPLETE TEMPLATE*
+
+
+Parameters:
+  VPCStackName:
+    Description: |
+      Name of the VPC stack from which to import VPC resources. Defaults to
+      'mattermost-vpc'.
+    Default: mattermost-vpc
+    Type: String
+  HttpsCidr:
+    Description: |
+      CIDR range for Mattermost LB access. Defaults to fully-open, but you can
+      pass in a valid CIDR block here to restrict it.
+    Default: '0.0.0.0/0'
+    Type: String
+
+
+Resources:
+
+  #################
+  # Load balancer #
+  #################
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: mattermost
+      SecurityGroups:
+        - !Ref SecurityGroupHTTPS
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+
+  SecurityGroupHTTPS:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTPS access to LB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref HttpsCidr
+
+
+Outputs:
+  LoadBalancer:
+    Description: Load Balancer DNS
+    Value: !GetAtt LoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-LoadBalancerDNSName'
+  SecurityGroupHTTPS:
+    Description: SG ID that allows HTTPS access
+    Value: !Ref SecurityGroupHTTPS
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupHTTPS'

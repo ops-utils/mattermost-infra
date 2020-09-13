@@ -1,0 +1,2 @@
+# For HA deployments -- single-node deployments will have Postgres running
+# locally by default

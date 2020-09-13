@@ -1,0 +1,5 @@
+install logs agent on host
+add mattermost user
+letsencrypt?
+run docker-compose stack
+set s3 DB backup cronjob
