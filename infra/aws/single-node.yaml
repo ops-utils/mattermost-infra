@@ -17,7 +17,7 @@ Parameters:
     Description: |
       CIDR range for Mattermost LB access. Defaults to fully-open, but you can
       pass in a valid CIDR block here to restrict it.
-    Default: '71.91.222.114/32'
+    Default: '127.0.0.1'
     Type: String
 
 

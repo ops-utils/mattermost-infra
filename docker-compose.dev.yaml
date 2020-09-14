@@ -5,7 +5,7 @@ services:
   mattermost:
     container_name: mattermost
     build:
-      dockerfile: ./Dockerfile
+      dockerfile: ./web/Dockerfile
       context: '.'
       args:
         MMDB_USER: mmuser
@@ -15,29 +15,17 @@ services:
     depends_on:
       - db
     network_mode: host
-    logging:
-      driver: awslogs
-      options:
-        awslogs-group: /aws/ec2/mattermost
-        awslogs-stream: mattermost-server
-        awslogs-create-group: false
 
   nginx:
     container_name: nginx
     build:
-      dockerfile: ./Dockerfile-nginx
+      dockerfile: ./nginx/Dockerfile
       context: '.'
     image: mattermost-nginx:latest
     ports:
       - '80:80'
       - '443:443'
     network_mode: host
-    logging:
-      driver: awslogs
-      options:
-        awslogs-group: /aws/ec2/mattermost
-        awslogs-stream: mattermost-server
-        awslogs-create-group: false
 
   db:
     container_name: mattermost-db
@@ -49,17 +37,11 @@ services:
     volumes:
       - 'mmdb:/var/lib/postgresql/data'
     network_mode: host
-    logging:
-      driver: awslogs
-      options:
-        awslogs-group: /aws/ec2/mattermost
-        awslogs-stream: mattermost-db
-        awslogs-create-group: false
   
   mattermost-mail:
     container_name: mattermost-mail
     build:
-      dockerfile: ./Dockerfile-mail
+      dockerfile: ./mailserver/Dockerfile
       context: '.'
     image: mattermost-mail:latest
     ports:
@@ -67,12 +49,6 @@ services:
     depends_on:
       - mattermost
     network_mode: host
-    logging:
-      driver: awslogs
-      options:
-        awslogs-group: /aws/ec2/mattermost
-        awslogs-stream: mattermost-mailserver
-        awslogs-create-group: false
 
 volumes:
   mmdb:
