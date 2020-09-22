@@ -4,9 +4,14 @@ AWS_ACCOUNT_ID = $(shell aws sts get-caller-identity --query Account --output te
 BUCKET = mattermost-$(AWS_ACCOUNT_ID)
 
 
+ifneq ($(parameter-overrides),)
+parameter-overrides-x = --parameter-overrides $(parameter-overrides)
+endif
+
 define cfn-deploy-args
 --stack-name mattermost-$(stackname) \
 --template-file infra/aws/$(stackname).yaml \
+$(parameter-overrides-x) \
 --capabilities CAPABILITY_IAM \
 --no-fail-on-empty-changeset
 endef
@@ -27,7 +32,7 @@ source-to-s3:
 	aws s3 cp --recursive . s3://$(BUCKET)/source/
 
 s3-wipe:
-	aws s3 rm --recursive s3://$(BUCKET)/*
+	python3 -c "import boto3; boto3.resource('s3').Bucket('$(BUCKET)').object_versions.delete()"
 
 cfn-delete: check-variables
 	@aws cloudformation delete-stack --stack-name $(stackname)
@@ -36,4 +41,4 @@ cfn-delete: check-variables
 	@printf "Done.\n"
 
 ssm-configure-instance:
-	aws ssm start-session --target i-xyz
+	@echo Not configured && exit 1 #aws ssm start-session --target

@@ -29,4 +29,6 @@ RUN useradd --system --user-group mattermost \
 
 EXPOSE 8065
 
-ENTRYPOINT ["bash", "mattermost/docker-entrypoint.sh"]
+# The actual binary is relpath-sensitive, so change dir here
+WORKDIR /root/mattermost
+ENTRYPOINT ["bash", "docker-entrypoint.sh"]
